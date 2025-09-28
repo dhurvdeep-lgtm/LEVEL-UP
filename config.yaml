@@ -1,0 +1,13 @@
+bot:
+  headless: false
+  timeout: 10
+  default_delay: 2
+  
+messages:
+  data_dir: "data/messages"
+  max_message_length: 1000
+  default_template: "greetings"
+  
+security:
+  enable_logging: true
+  log_sensitive: false
