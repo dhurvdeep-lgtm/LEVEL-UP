@@ -1,156 +1,218 @@
-#!/usr/bin/env python3
-"""
-Deepak Messenger Bot - Main Entry Point
-Specialized for Deepak Kumar Kumar
-"""
-
+from flask import Flask, render_template, request, jsonify
 import os
-import sys
-from src.bot import MessengerBot
-from src.message_manager import MessageManager
-from src.friend_manager import FriendManager
-from config.settings import Settings
-from config.credentials import Credentials
+import threading
+import time
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
+import logging
 
-def main():
-    print("🚀 Deepak Messenger Bot")
-    print("👤 Specialized for: Deepak Kumar Kumar")
-    print("=" * 50)
+app = Flask(__name__)
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class RenderMessengerBot:
+    def __init__(self):
+        self.driver = None
+        self.setup_driver()
     
-    # Load settings and credentials
-    settings = Settings()
-    credentials = Credentials()
+    def setup_driver(self):
+        """Setup Chrome for Render.com"""
+        try:
+            logger.info("Setting up Chrome driver for Render...")
+            
+            chrome_options = Options()
+            
+            # Render.com specific settings
+            chrome_options.add_argument('--headless')
+            chrome_options.add_argument('--no-sandbox')
+            chrome_options.add_argument('--disable-dev-shm-usage')
+            chrome_options.add_argument('--disable-gpu')
+            chrome_options.add_argument('--window-size=1920,1080')
+            chrome_options.add_argument('--disable-extensions')
+            chrome_options.add_argument('--disable-images')
+            chrome_options.add_argument('--blink-settings=imagesEnabled=false')
+            
+            # Performance optimizations
+            chrome_options.add_argument('--disable-javascript')
+            chrome_options.add_argument('--disable-plugins')
+            chrome_options.add_argument('--disable-background-timer-throttling')
+            chrome_options.add_argument('--disable-renderer-backgrounding')
+            chrome_options.add_argument('--disable-backgrounding-occluded-windows')
+            
+            # Set user agent
+            chrome_options.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
+            
+            # Disable logging for performance
+            chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+            
+            # Initialize driver
+            service = Service(ChromeDriverManager().install())
+            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            
+            # Set page load timeout
+            self.driver.set_page_load_timeout(30)
+            
+            logger.info("Chrome driver setup completed successfully")
+            
+        except Exception as e:
+            logger.error(f"Driver setup failed: {e}")
+            raise
     
-    # Initialize managers
-    message_manager = MessageManager()
-    friend_manager = FriendManager()
+    def quick_login(self, email, password):
+        """Fast login method for Render"""
+        try:
+            logger.info("Attempting quick login...")
+            
+            # Use mobile version for faster loading
+            self.driver.get("https://m.facebook.com")
+            
+            # Fast element finding
+            email_field = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.NAME, "email"))
+            )
+            password_field = self.driver.find_element(By.NAME, "pass")
+            login_button = self.driver.find_element(By.NAME, "login")
+            
+            # Quick input
+            email_field.send_keys(email)
+            password_field.send_keys(password)
+            login_button.click()
+            
+            # Quick check for login success
+            time.sleep(3)
+            
+            if "login" not in self.driver.current_url:
+                logger.info("Login successful")
+                return True
+            else:
+                logger.error("Login failed")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Login error: {e}")
+            return False
     
-    # Check if Deepak is configured
-    deepak_profile = friend_manager.get_friend("Deepak kumar kumar")
-    if not deepak_profile:
-        print("📝 Setting up Deepak for first time...")
-        deepak_profile = setup_deepak_profile(friend_manager, message_manager)
+    def send_quick_message(self, friend_name, message):
+        """Send message quickly"""
+        try:
+            # Go directly to message URL (faster)
+            self.driver.get(f"https://m.facebook.com/messages/t/{friend_name}")
+            time.sleep(2)
+            
+            # Find message input
+            message_input = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.NAME, "body"))
+            )
+            
+            message_input.send_keys(message)
+            
+            # Find send button
+            send_button = self.driver.find_element(By.XPATH, "//input[@value='Send']")
+            send_button.click()
+            
+            logger.info(f"Message sent to {friend_name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Message sending error: {e}")
+            return False
     
-    # Initialize bot
-    bot = MessengerBot(settings=settings)
+    def close(self):
+        """Close driver"""
+        if self.driver:
+            self.driver.quit()
+            logger.info("Browser closed")
+
+# Global bot instance
+bot_instance = None
+
+@app.route('/')
+def home():
+    return render_template('index.html')
+
+@app.route('/health')
+def health_check():
+    return jsonify({"status": "healthy", "message": "Server is running"})
+
+@app.route('/send-message', methods=['POST'])
+def send_message():
+    """API endpoint to send message"""
+    global bot_instance
     
     try:
+        data = request.json
+        email = data.get('email')
+        password = data.get('password')
+        friend_name = data.get('friend_name', 'Deepak')
+        message = data.get('message', 'Hello from Render Bot!')
+        
+        if not email or not password:
+            return jsonify({"success": False, "error": "Email and password required"})
+        
+        # Initialize bot
+        bot_instance = RenderMessengerBot()
+        
         # Login
-        if bot.login(credentials.email, credentials.password):
-            show_main_menu(bot, message_manager, friend_manager, deepak_profile)
+        if bot_instance.quick_login(email, password):
+            # Send message
+            if bot_instance.send_quick_message(friend_name, message):
+                bot_instance.close()
+                return jsonify({"success": True, "message": "Message sent successfully"})
+            else:
+                bot_instance.close()
+                return jsonify({"success": False, "error": "Failed to send message"})
         else:
-            print("❌ Login failed!")
+            bot_instance.close()
+            return jsonify({"success": False, "error": "Login failed"})
             
-    except KeyboardInterrupt:
-        print("\n⏹️ Bot stopped by user")
     except Exception as e:
-        print(f"❌ Error: {e}")
-    finally:
-        bot.cleanup()
+        if bot_instance:
+            bot_instance.close()
+        return jsonify({"success": False, "error": str(e)})
 
-def setup_deepak_profile(friend_manager, message_manager):
-    """Setup Deepak's profile for first time"""
-    deepak_profile = {
-        "name": "Deepak kumar kumar",
-        "message_file": "Deepak_kumar_kumar.txt",
-        "preferred_language": "hindi",
-        "message_delay": 3,
-        "relationship": "friend"
-    }
+@app.route('/send-bulk', methods=['POST'])
+def send_bulk_messages():
+    """Send multiple messages"""
+    global bot_instance
     
-    # Create profile
-    friend_manager.create_friend(deepak_profile)
-    
-    # Create default messages
-    default_messages = [
-        "Hello Deepak! 👋",
-        "Kaise ho aap?",
-        "Python bot testing chal raha hai",
-        "Ye message automatically bhej raha hoon",
-        "Kuch kaam hai toh batana",
-        "Bye! 😊"
-    ]
-    
-    message_manager.create_message_file("Deepak kumar kumar", default_messages)
-    print("✅ Deepak profile setup completed!")
-    return deepak_profile
-
-def show_main_menu(bot, message_manager, friend_manager, deepak_profile):
-    """Show main menu"""
-    while True:
-        print(f"\n🎯 Main Menu - Deepak Kumar Kumar")
-        print("-" * 40)
-        print("1. Send messages to Deepak")
-        print("2. Edit Deepak's messages")
-        print("3. View message history")
-        print("4. Send custom message")
-        print("5. Check new messages")
-        print("6. Exit")
+    try:
+        data = request.json
+        email = data.get('email')
+        password = data.get('password')
+        friend_name = data.get('friend_name', 'Deepak')
+        messages = data.get('messages', ['Hello!', 'How are you?'])
         
-        choice = input("\nSelect option (1-6): ").strip()
+        if not email or not password:
+            return jsonify({"success": False, "error": "Email and password required"})
         
-        if choice == "1":
-            send_messages_to_deepak(bot, message_manager, deepak_profile)
-        elif choice == "2":
-            edit_deepak_messages(message_manager, deepak_profile)
-        elif choice == "3":
-            view_message_history(friend_manager, deepak_profile)
-        elif choice == "4":
-            send_custom_message(bot, deepak_profile)
-        elif choice == "5":
-            bot.check_new_messages()
-        elif choice == "6":
-            print("👋 Goodbye!")
-            break
+        bot_instance = RenderMessengerBot()
+        
+        if bot_instance.quick_login(email, password):
+            results = []
+            for msg in messages:
+                success = bot_instance.send_quick_message(friend_name, msg)
+                results.append({"message": msg, "success": success})
+                time.sleep(2)  # Small delay between messages
+            
+            bot_instance.close()
+            return jsonify({"success": True, "results": results})
         else:
-            print("❌ Invalid option!")
+            bot_instance.close()
+            return jsonify({"success": False, "error": "Login failed"})
+            
+    except Exception as e:
+        if bot_instance:
+            bot_instance.close()
+        return jsonify({"success": False, "error": str(e)})
 
-def send_messages_to_deepak(bot, message_manager, deepak_profile):
-    """Send messages to Deepak"""
-    print(f"\n📨 Preparing to send messages to {deepak_profile['name']}...")
-    
-    messages = message_manager.get_messages("Deepak kumar kumar")
-    if not messages:
-        print("❌ No messages found for Deepak!")
-        return
-    
-    print(f"📝 Found {len(messages)} messages")
-    print("\nMessages to send:")
-    for i, msg in enumerate(messages, 1):
-        print(f"  {i}. {msg}")
-    
-    confirm = input("\nSend these messages? (y/n): ").lower()
-    if confirm == 'y':
-        success = bot.send_messages("Deepak kumar kumar", messages)
-        if success:
-            print("✅ Messages sent successfully!")
-        else:
-            print("❌ Failed to send messages")
-
-def edit_deepak_messages(message_manager, deepak_profile):
-    """Edit messages for Deepak"""
-    print(f"\n📝 Editing messages for {deepak_profile['name']}")
-    message_manager.edit_messages_interactive("Deepak kumar kumar")
-
-def view_message_history(friend_manager, deepak_profile):
-    """View message history with Deepak"""
-    history = friend_manager.get_message_history("Deepak kumar kumar")
-    if history:
-        print(f"\n📊 Message History with {deepak_profile['name']}:")
-        for entry in history[-10:]:  # Last 10 messages
-            print(f"  {entry['timestamp']}: {entry['message']}")
-    else:
-        print("📊 No message history found")
-
-def send_custom_message(bot, deepak_profile):
-    """Send custom message to Deepak"""
-    message = input("Enter your custom message: ").strip()
-    if message:
-        success = bot.send_messages("Deepak kumar kumar", [message])
-        if success:
-            print("✅ Custom message sent!")
-        else:
-            print("❌ Failed to send message")
-
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
